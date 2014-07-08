@@ -1,0 +1,435 @@
+<!doctype html>
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Raycaster Demo - PlayfulJS</title>
+  </head>
+  <body style='background: #000; margin: 0; padding: 0'>
+    <canvas id='display' width='1' height='1' style='width: 100%; height: 100%;' />
+
+    <script>
+
+      var CIRCLE = 2 * Math.PI;
+      var PI = Math.PI;
+      var MOBILE = /Android|webOS|iPhone|iPad|iPod|BlackBerry/i.test(navigator.userAgent)
+
+      function Controls() {
+        this.codes  = { 37: 'left', 39: 'right', 38: 'forward', 40: 'backward' };
+        this.states = { 'left': false, 'right': false, 'forward': false, 'backward': false };
+        document.addEventListener('keydown', this.onKey.bind(this, true), false);
+        document.addEventListener('keyup', this.onKey.bind(this, false), false);
+      }
+
+      Controls.prototype.onKey = function(val, e) {
+        var state = this.codes[e.keyCode];
+        if (typeof state === 'undefined') return;
+        this.states[state] = val;
+        e.preventDefault && e.preventDefault();
+        e.stopPropagation && e.stopPropagation();
+      };
+
+      function Player(pov) {
+        this.pov = pov;
+        this.weapon = new Bitmap('./knife_hand.png', 319, 320);
+        this.paces = 0;
+      }
+
+      Player.prototype.rotate = function(angle) {
+        this.pov.direction = (this.pov.direction + angle + CIRCLE) % (CIRCLE);
+      };
+
+      Player.prototype.walk = function(distance, map) {
+    	  var walkUp = this.pov.direction >= 0 && this.pov.direction <= PI;
+    	  var walkLeft = this.pov.direction >= 0.5 * PI && this.pov.direction <= 1.5 * PI;
+        var dx = Math.cos(this.pov.direction) * distance;
+        dx = walkLeft ? -Math.abs(dx) : Math.abs(dx);
+        var dy = Math.sin(this.pov.direction) * distance;
+        dy = walkUp ? -Math.abs(dy) : Math.abs(dy);
+        if (distance > 0){
+        	dx = -dx;
+        	dy = -dy;
+        }
+        if (this.pov.x + dx <= map.limitLength 
+        		&& this.pov.x + dx >= 0
+        		&& map.get((this.pov.x + dx) / map.gridUnitSize, this.pov.y / map.gridUnitSize) == 0) 
+        	this.pov.x += dx;
+        if (this.pov.y + dy <= map.limitLength
+        		&& this.pov.y + dy >= 0
+        		&& map.get(this.pov.x / map.gridUnitSize, (this.pov.y + dy) / map.gridUnitSize) == 0) this.pov.y += dy;
+        this.paces += distance;
+      };
+
+      Player.prototype.update = function(controls, map, seconds, rotateSpeedFactor) {
+        if (controls.left) this.rotate(Math.PI * seconds * rotateSpeedFactor);
+        if (controls.right) this.rotate(-Math.PI * seconds * rotateSpeedFactor);
+        if (controls.forward) this.walk(-100 * seconds, map);
+        if (controls.backward) this.walk(100 * seconds, map);
+      };
+      
+      function Bitmap(src, width, height) {
+        this.image = new Image();
+        this.image.src = src;
+        this.width = width;
+        this.height = height;
+      }
+
+      var ProjectPlane = function(width, height){
+    	this.width = width;
+    	this.height = height;
+      }
+      
+      /**
+       * Point of view
+       */
+	  function Pov(x, y, direction, lookHowFar, projectPlane, fov) {
+	    this.x = x;
+	    this.y = y;
+	    this.direction = direction;	// 弧度
+	    this.lookHowFar = lookHowFar;
+	    this.projectPlane = projectPlane;
+    	this.fov = fov;
+    	this.distanceToPlane = (projectPlane.width / 2) / Math.tan(fov / 2);
+	  }
+  
+      function Map(size, gridUnitSize) {
+        this.size = size;	// 一侧格的个数
+        this.gridUnitSize = gridUnitSize;
+        this.limitLength = size * gridUnitSize;
+        this.wallGrid = new Uint8Array(size * size);	// 地图网格,是否有墙
+        this.wallTexture = new Bitmap('./my.jpg', 1024, 768);
+        this.skybox = new Bitmap('./deathvalley_panorama.jpg', 4000, 1290);
+        this.randomize();
+      }
+
+      /**
+       * 根据索引判断是否有墙
+       * 返回 0、1、超出范围返回-1
+       */
+      Map.prototype.get = function(x, y) {
+        x = Math.floor(x);
+        y = Math.floor(y);
+        if (x < 0 || x > this.size - 1 || y < 0 || y > this.size - 1) return -1;
+        return this.wallGrid[y * this.size + x];
+      };
+
+      /**
+       * 随机确定地图中每个网格是否为墙
+       */
+      Map.prototype.randomize = function() {
+    	  var walls = [
+    	               [0, 0],
+    	               [0, 1],
+    	               [0, 2],
+    	               [0, 3],
+    	               [1, 0],
+    	               [2, 0],
+    	               [3, 0],
+    	               [3, 1],
+    	               [3, 2],
+    	               [3, 3],
+    	               [1, 3],
+    	               [2, 3],
+    	               ];
+		var wallIndex = [];
+    	for (var j in walls){
+			var index = walls[j][1] * this.size + walls[j][0];
+			wallIndex.push(index);
+		}
+        for (var i = 0; i < this.size * this.size; i++) {
+          this.wallGrid[i] = Math.random() < 0.3 ? 1 : 0;
+          //this.wallGrid[i] = (i >= 0 && i < 10 ? 1 : 0);
+          /*
+          for (var j in wallIndex){
+	          if (i == wallIndex[j]){
+	        	  this.wallGrid[i] = 1;
+	          }
+          }
+          */
+        }
+      };
+
+      var IntersectionPoint = function(distance, gridX, gridY, offset, side){
+    	  this.distance = distance;
+    	  this.gridX = gridX;
+    	  this.gridY = gridY;
+    	  this.offset = offset;
+    	  this.side = side;
+      }
+      
+      var RayCast = function(){
+      }
+      
+      RayCast.prototype.cast = function(map, pov, angle) {
+    	  var interHorizentalPoint = this.calculateHorizentalInterPoint(map, pov, angle);
+    	  var interVerticalPoint = this.calculateVerticalInterPoint(map, pov, angle);
+    	  if (interHorizentalPoint && interVerticalPoint){
+    		  return interHorizentalPoint.distance <= interVerticalPoint.distance ? interHorizentalPoint : interVerticalPoint;   
+    	  }else if (interHorizentalPoint){
+    		  return interHorizentalPoint;
+    	  }else if (interVerticalPoint){
+    		  return interVerticalPoint;
+    	  }else{
+    		  return null;
+    	  }
+      }
+      
+      RayCast.prototype.calculateHorizentalInterPoint = function(map, pov, angle) {
+    	  if (angle == 0 || angle == PI)
+    		  return null;
+    	  
+    	  var Px = pov.x;
+    	  var Py = pov.y;
+    	  var lookHowFar = pov.lookHowFar;
+    	  var gridUnitSize = map.gridUnitSize;
+    	  var limitLength = map.limitLength;
+    	  
+    	  var directionUp = angle >= 0 && angle <= PI;
+    	  var directionLeft = angle >= 0.5 * PI && angle <= 1.5 * PI;
+    	  var Ay = directionUp ? Math.floor(Py / gridUnitSize) * gridUnitSize - 1 : 
+    			  Math.floor(Py / gridUnitSize) * gridUnitSize + gridUnitSize
+    	  var Ax = Math.tan(angle) ? Px + (Py - Ay) / Math.tan(angle) : Px;
+    	  var distance = (Py - Ay) / Math.sin(angle);
+    	  var gridX = Math.floor(Ax / gridUnitSize);
+    	  var gridY = Math.floor(Ay / gridUnitSize);
+    	  var isHitWall = map.get(gridX, gridY) === 1;
+    	  var offset = Ax % gridUnitSize;
+    	  
+    	  if (distance > lookHowFar 
+    			  || Ax > limitLength
+    			  || Ax < 0
+    			  || Ay > limitLength
+    			  || Ay < 0){
+    		  return null;
+    	  }
+    	  if (isHitWall){
+    		  return new IntersectionPoint(distance, gridX, gridY, directionUp ? offset : gridUnitSize - offset, directionUp ? 'down' : 'up');
+    	  }
+    	  
+   		  var dy = directionUp ? -gridUnitSize : gridUnitSize;
+   		  var dx = Math.tan(angle) ? 
+   				  (directionLeft ? -Math.abs(dy / Math.tan(angle)) : Math.abs(dy / Math.tan(angle))) 
+   				  : 0;
+    	  while (!isHitWall && distance <= lookHowFar){
+    		  Ay += dy;
+    		  Ax += dx;    	  
+    		  if (Ax > limitLength
+        			  || Ax < 0
+        			  || Ay > limitLength
+        			  || Ay < 0){
+        		  return null;
+        	  }
+    		  distance = (Py - Ay) / Math.sin(angle);
+        	  gridX = Math.floor(Ax / gridUnitSize);
+        	  gridY = Math.floor(Ay / gridUnitSize);
+        	  offset = Ax % gridUnitSize;
+        	  isHitWall = map.get(gridX, gridY) === 1;
+    	  }
+       	  if (isHitWall){
+       		  return new IntersectionPoint(distance, gridX, gridY, directionUp ? offset : gridUnitSize - offset, directionUp ? 'down' : 'up');
+       	  }
+       	  return null;
+      }
+      
+      RayCast.prototype.calculateVerticalInterPoint = function(map, pov, angle) {
+    	  if (angle == 0.5 * PI || angle == 1.5 * PI)
+    		  return null;
+    	  
+    	  var Px = pov.x;
+    	  var Py = pov.y;
+    	  var lookHowFar = pov.lookHowFar;
+    	  var gridUnitSize = map.gridUnitSize;
+    	  var limitLength = map.limitLength;
+    	  
+    	  var directionUp = angle >= 0 && angle <= PI;
+    	  var directionLeft = angle >= 0.5 * PI && angle <= 1.5 * PI;
+    	  var Ax = directionLeft ? 
+    			  Math.floor(Px / gridUnitSize) * gridUnitSize - 1 
+    			  : Math.floor(Px / gridUnitSize) * gridUnitSize + 64; 
+    	  var Ay = directionUp ? 
+    			  Py - Math.abs( (Ax - Px) * Math.tan(angle) )
+    	  		  : Py + Math.abs( (Ax - Px) * Math.tan(angle - PI) );
+    	  
+    	  var distance = (Ax - Px) / Math.cos(angle);
+    	  var gridX = Math.floor(Ax / gridUnitSize);
+    	  var gridY = Math.floor(Ay / gridUnitSize);
+    	  var isHitWall = map.get(gridX, gridY) === 1;
+    	  var offset = Ay % gridUnitSize;
+    	  
+    	  if (distance > lookHowFar 
+    			  || Ax > limitLength
+    			  || Ax < 0
+    			  || Ay > limitLength
+    			  || Ay < 0){
+    		  return null;
+    	  }
+    	  if (isHitWall){
+    		  return new IntersectionPoint(distance, gridX, gridY, directionLeft ? gridUnitSize - offset : offset, directionLeft ? 'right' : 'left');
+    	  }
+    	  
+   		  var dx = directionLeft ? -gridUnitSize : gridUnitSize;
+   		  var dy = directionUp ? 
+   				  -Math.abs(Math.tan(angle) * dx)
+   				  : Math.abs(Math.tan(angle) * dx);
+    	  while (!isHitWall && distance <= lookHowFar){
+    		  Ay += dy;
+    		  Ax += dx;    	  
+    		  if (Ax > limitLength
+        			  || Ax < 0
+        			  || Ay > limitLength
+        			  || Ay < 0){
+        		  return null;
+        	  }
+    		  distance = (Ax - Px) / Math.cos(angle);
+        	  gridX = Math.floor(Ax / gridUnitSize);
+        	  gridY = Math.floor(Ay / gridUnitSize);
+        	  offset = Ay % gridUnitSize;
+        	  isHitWall = map.get(gridX, gridY) === 1;
+    	  }
+       	  if (isHitWall){
+    		  return new IntersectionPoint(distance, gridX, gridY, directionLeft ? gridUnitSize - offset : offset, directionLeft ? 'right' : 'left');
+       	  }
+       	  return null;
+      }
+      
+      function Camera(canvas) {
+        this.ctx = canvas.getContext('2d');
+        this.width = canvas.width = window.innerWidth ;
+        this.height = canvas.height = window.innerHeight ;
+        this.rayCast = new RayCast();
+      }
+
+      Camera.prototype.render = function(pov, map) {
+        this.clear();
+        this.drawSky(pov.direction, map.skybox, 1);
+        this.drawColumns(pov, map);
+      };
+      
+      Camera.prototype.clear = function() {
+          this.ctx.save();
+          this.ctx.fillStyle = '#000';
+          this.ctx.globalAlpha = 1;
+          this.ctx.fillRect(0, 0, this.width, this.height );
+          this.ctx.restore();
+      };
+      
+      Camera.prototype.drawSky = function(direction, sky, ambient) {
+          var width = this.width * (CIRCLE / this.fov);
+          var left = -width * direction / CIRCLE;
+
+          this.ctx.save();
+          this.ctx.drawImage(sky.image, left, 0, width, this.height);
+          if (left < width - this.width) {
+            this.ctx.drawImage(sky.image, left + width, 0, width, this.height);
+          }
+          if (ambient > 0) {
+            this.ctx.fillStyle = '#ffffff';
+            this.ctx.globalAlpha = ambient * 0.1;
+            this.ctx.fillRect(0, this.height * 0.5, this.width, this.height * 0.5);
+          }
+          this.ctx.restore();
+      };
+        
+      Camera.prototype.drawColumns = function(pov, map) {
+          
+        var resolution = pov.projectPlane.width;
+        var spacing = this.width / resolution;
+        var startAngle = (pov.direction + pov.fov / 2 + CIRCLE) % CIRCLE;
+        for (var column = 0; column < resolution; column++) {
+      	  var angle = (startAngle - column * pov.fov / resolution + CIRCLE) % CIRCLE;
+          var intersectionPoint = this.rayCast.cast(map, pov, angle);
+          if (intersectionPoint){
+        	  intersectionPoint.distance *= Math.cos(angle - pov.direction);
+          }
+          this.drawColumn(pov, column, spacing, intersectionPoint, angle, map);
+        }
+      };
+
+      Camera.prototype.drawColumn = function(pov, columnIndex, spacing, intersectionPoint, angle, map) {
+    	  if (intersectionPoint){
+        	
+	    	var ctx = this.ctx;
+	        var texture = map.wallTexture;
+		
+	        var wall = this.project(intersectionPoint.distance, 
+	        		pov.distanceToPlane, 
+	        		map.gridUnitSize, 
+	        		map.gridUnitSize / 2, 
+	        		pov.projectPlane.height / 2);
+	
+	        var textureX = Math.floor(intersectionPoint.offset * texture.width / map.gridUnitSize);
+	        var textureY = 0;
+	        var textureWidth = texture.width / pov.projectPlane.width;
+	        var textureHeight = texture.height;
+	        var canvasLeft = Math.floor(columnIndex * spacing);
+	        var canvasTop = this.height / pov.projectPlane.height * wall.topOnPlane;
+	        var canvasWidth = Math.ceil(spacing);
+	        var canvasHeight = this.height / pov.projectPlane.height * wall.heightOfProjectWall;
+	        
+	        ctx.drawImage(texture.image, 
+	        		textureX, textureY, textureWidth, textureHeight, 
+	        		canvasLeft, canvasTop, canvasWidth, canvasHeight);
+        }else{
+        	//debugger;
+        }
+      };
+
+      /**
+       * 计算墙投影在屏幕上的顶点和高度
+       */
+      Camera.prototype.project = function(distanceToWall, distanceToPlane, HeightOfWall, HeightOfCamera, middleOfPlane) {
+		var heightOfProjectWall = distanceToPlane * HeightOfWall / distanceToWall;
+
+		return {
+			topOnPlane: middleOfPlane - heightOfProjectWall / 2,
+			heightOfProjectWall: heightOfProjectWall
+		}
+      };
+
+      function GameLoop() {
+        this.frame = this.frame.bind(this);
+        this.lastTime = 0;
+        this.callback = function() {};
+      }
+
+      GameLoop.prototype.start = function(callback) {
+        this.callback = callback;
+        requestAnimationFrame(this.frame);
+      };
+
+      GameLoop.prototype.frame = function(time) {
+        var seconds = (time - this.lastTime) / 1000;
+        this.lastTime = time;
+        if (seconds < 0.2) this.callback(seconds);
+        requestAnimationFrame(this.frame);
+      };
+
+      var display = document.getElementById('display');
+      var size = 100;
+      var map = new Map(size, 64);
+      var x, y;
+      do{
+    	  x = Math.random() * size * 64;
+	      y = Math.random() * size * 64;
+      } while(map.get(Math.floor(x / 64), Math.floor(y / 64)) != 0);
+      
+      var projectPlane = new ProjectPlane(320, 200);
+      var direction = Math.random() * PI;
+      var pov = new Pov(
+    		  x, //150
+    		  y, //150
+    		  direction, //CIRCLE / 360 * 315
+    		  1000, projectPlane, CIRCLE / 360 * 60);
+      var player = new Player(pov);
+      var controls = new Controls();
+      var camera = new Camera(display);
+      var loop = new GameLoop();
+
+      
+      loop.start(function frame(seconds) {
+        player.update(controls.states, map, seconds, 0.8);
+        camera.render(pov, map);
+      });
+
+    </script>
+  </body>
+</html>
